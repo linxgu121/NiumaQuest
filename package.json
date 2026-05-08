@@ -1,0 +1,10 @@
+{
+  "name": "com.niuma.quest",
+  "displayName": "NiumaQuest",
+  "version": "1.0.0",
+  "unity": "2022.3",
+  "description": "Quest module protocols and runtime data for Niuma modular game framework.",
+  "dependencies": {
+    "com.niuma.core": "1.0.0"
+  }
+}

@@ -16,6 +16,8 @@ namespace NiumaQuest.Service
     {
         private readonly Dictionary<string, QuestAsset> _questAssets = new Dictionary<string, QuestAsset>();
         private readonly Dictionary<string, QuestRuntimeState> _runtimeStates = new Dictionary<string, QuestRuntimeState>();
+        private int _mutationDepth;
+        private bool _revisionDirtyInCurrentMutation;
 
         /// <inheritdoc />
         public event Action<QuestChangedEvent> OnQuestChanged;
@@ -42,188 +44,257 @@ namespace NiumaQuest.Service
         public event Action<QuestTrackingChangedEvent> OnTrackingChanged;
 
         /// <inheritdoc />
+        public int Revision { get; private set; }
+
+        /// <inheritdoc />
         public void SetQuestAssets(IEnumerable<QuestAsset> questAssets)
         {
-            _questAssets.Clear();
-
-            if (questAssets == null)
+            BeginMutation();
+            try
             {
-                return;
-            }
+                _questAssets.Clear();
 
-            foreach (var asset in questAssets)
-            {
-                if (asset == null || string.IsNullOrWhiteSpace(asset.QuestId))
+                if (questAssets == null)
                 {
-                    continue;
+                    MarkRevisionDirty();
+                    return;
                 }
 
-                if (_questAssets.ContainsKey(asset.QuestId))
+                foreach (var asset in questAssets)
                 {
-                    continue;
+                    if (asset == null || string.IsNullOrWhiteSpace(asset.QuestId))
+                    {
+                        continue;
+                    }
+
+                    if (_questAssets.ContainsKey(asset.QuestId))
+                    {
+                        continue;
+                    }
+
+                    _questAssets.Add(asset.QuestId, asset);
                 }
 
-                _questAssets.Add(asset.QuestId, asset);
+                RefreshAllRuntimeStates();
+                MarkRevisionDirty();
             }
-
-            RefreshAllRuntimeStates();
+            finally
+            {
+                EndMutation();
+            }
         }
 
         /// <inheritdoc />
         public bool TryAcceptQuest(string questId)
         {
-            if (!TryGetAsset(questId, out var asset))
+            BeginMutation();
+            try
             {
-                return false;
-            }
-
-            if (_runtimeStates.TryGetValue(questId, out var existingState))
-            {
-                if (!asset.Repeatable && existingState.State != QuestState.Locked && existingState.State != QuestState.Available)
+                if (!TryGetAsset(questId, out var asset))
                 {
                     return false;
                 }
+
+                if (_runtimeStates.TryGetValue(questId, out var existingState))
+                {
+                    if (!asset.Repeatable && existingState.State != QuestState.Locked && existingState.State != QuestState.Available)
+                    {
+                        return false;
+                    }
+                }
+
+                var firstStage = GetFirstValidStage(asset);
+                if (firstStage == null)
+                {
+                    return false;
+                }
+
+                var state = new QuestRuntimeState
+                {
+                    QuestId = asset.QuestId,
+                    State = QuestState.Accepted,
+                    CurrentStageId = firstStage.StageId,
+                    IsTracked = asset.AutoTrackOnAccept,
+                    Objectives = BuildObjectiveStates(firstStage, null)
+                };
+
+                _runtimeStates[asset.QuestId] = state;
+                PublishAccepted(state);
+                EvaluateCurrentStage(state);
+                return true;
             }
-
-            var firstStage = GetFirstValidStage(asset);
-            if (firstStage == null)
+            finally
             {
-                return false;
+                EndMutation();
             }
-
-            var state = new QuestRuntimeState
-            {
-                QuestId = asset.QuestId,
-                State = QuestState.Accepted,
-                CurrentStageId = firstStage.StageId,
-                IsTracked = asset.AutoTrackOnAccept,
-                Objectives = BuildObjectiveStates(firstStage, null)
-            };
-
-            _runtimeStates[asset.QuestId] = state;
-            PublishAccepted(state);
-            EvaluateCurrentStage(state);
-            return true;
         }
 
         /// <inheritdoc />
         public bool TryCompleteQuest(string questId)
         {
-            if (!TryGetCompletableState(questId, out var state))
+            BeginMutation();
+            try
             {
-                return false;
-            }
+                if (!TryGetCompletableState(questId, out var state))
+                {
+                    return false;
+                }
 
-            if (state.State == QuestState.Completed
-                || state.State == QuestState.RewardPending
-                || state.State == QuestState.Failed
-                || state.State == QuestState.Rewarded)
+                if (state.State == QuestState.Completed
+                    || state.State == QuestState.RewardPending
+                    || state.State == QuestState.Failed
+                    || state.State == QuestState.Rewarded)
+                {
+                    return false;
+                }
+
+                state.State = QuestState.Completed;
+                PublishCompleted(state);
+                return true;
+            }
+            finally
             {
-                return false;
+                EndMutation();
             }
-
-            state.State = QuestState.Completed;
-            PublishCompleted(state);
-            return true;
         }
 
         /// <inheritdoc />
         public bool TryAdvanceStage(string questId)
         {
-            if (!TryGetStageEditableState(questId, out var state) || !TryGetAsset(questId, out var asset))
+            BeginMutation();
+            try
             {
-                return false;
-            }
+                if (!TryGetStageEditableState(questId, out var state) || !TryGetAsset(questId, out var asset))
+                {
+                    return false;
+                }
 
-            return AdvanceOrComplete(state, asset);
+                return AdvanceOrComplete(state, asset);
+            }
+            finally
+            {
+                EndMutation();
+            }
         }
 
         /// <inheritdoc />
         public bool TrySetStage(string questId, string stageId)
         {
-            if (!TryGetStageEditableState(questId, out var state) || !TryGetAsset(questId, out var asset))
+            BeginMutation();
+            try
             {
-                return false;
-            }
+                if (!TryGetStageEditableState(questId, out var state) || !TryGetAsset(questId, out var asset))
+                {
+                    return false;
+                }
 
-            var stage = FindStage(asset, stageId);
-            if (stage == null)
+                var stage = FindStage(asset, stageId);
+                if (stage == null)
+                {
+                    return false;
+                }
+
+                var previousStageId = state.CurrentStageId;
+                state.CurrentStageId = stage.StageId;
+                state.State = QuestState.Accepted;
+                state.Objectives = BuildObjectiveStates(stage, state.Objectives);
+                PublishStageChanged(state.QuestId, previousStageId, state.CurrentStageId, isManual: true);
+                EvaluateCurrentStage(state);
+                return true;
+            }
+            finally
             {
-                return false;
+                EndMutation();
             }
-
-            var previousStageId = state.CurrentStageId;
-            state.CurrentStageId = stage.StageId;
-            state.State = QuestState.Accepted;
-            state.Objectives = BuildObjectiveStates(stage, state.Objectives);
-            PublishStageChanged(state.QuestId, previousStageId, state.CurrentStageId, isManual: true);
-            EvaluateCurrentStage(state);
-            return true;
         }
 
         /// <inheritdoc />
         public bool TryFailQuest(string questId)
         {
-            if (!TryGetFailableState(questId, out var state))
+            BeginMutation();
+            try
             {
-                return false;
-            }
+                if (!TryGetFailableState(questId, out var state))
+                {
+                    return false;
+                }
 
-            if (state.State == QuestState.Completed || state.State == QuestState.Rewarded)
+                if (state.State == QuestState.Completed || state.State == QuestState.Rewarded)
+                {
+                    return false;
+                }
+
+                state.State = QuestState.Failed;
+                PublishFailed(state);
+                return true;
+            }
+            finally
             {
-                return false;
+                EndMutation();
             }
-
-            state.State = QuestState.Failed;
-            PublishFailed(state);
-            return true;
         }
 
         /// <inheritdoc />
         public bool TryTrackQuest(string questId)
         {
-            if (!TryGetInternalQuestState(questId, out var state))
+            BeginMutation();
+            try
             {
-                return false;
-            }
-
-            foreach (var runtimeState in _runtimeStates.Values)
-            {
-                if (runtimeState == null || ReferenceEquals(runtimeState, state) || !runtimeState.IsTracked)
+                if (!TryGetInternalQuestState(questId, out var state))
                 {
-                    continue;
+                    return false;
                 }
 
-                runtimeState.IsTracked = false;
-                PublishTrackingChanged(runtimeState);
-            }
+                foreach (var runtimeState in _runtimeStates.Values)
+                {
+                    if (runtimeState == null || ReferenceEquals(runtimeState, state) || !runtimeState.IsTracked)
+                    {
+                        continue;
+                    }
 
-            if (state.IsTracked)
-            {
+                    runtimeState.IsTracked = false;
+                    PublishTrackingChanged(runtimeState);
+                }
+
+                if (state.IsTracked)
+                {
+                    return true;
+                }
+
+                state.IsTracked = true;
+                PublishTrackingChanged(state);
                 return true;
             }
-
-            state.IsTracked = true;
-            PublishTrackingChanged(state);
-            return true;
+            finally
+            {
+                EndMutation();
+            }
         }
 
         /// <inheritdoc />
         public bool TryUntrackQuest(string questId)
         {
-            if (!TryGetInternalQuestState(questId, out var state))
+            BeginMutation();
+            try
             {
-                return false;
-            }
+                if (!TryGetInternalQuestState(questId, out var state))
+                {
+                    return false;
+                }
 
-            if (!state.IsTracked)
-            {
+                if (!state.IsTracked)
+                {
+                    return true;
+                }
+
+                state.IsTracked = false;
+                PublishTrackingChanged(state);
                 return true;
             }
-
-            state.IsTracked = false;
-            PublishTrackingChanged(state);
-            return true;
+            finally
+            {
+                EndMutation();
+            }
         }
 
         /// <inheritdoc />
@@ -257,79 +328,87 @@ namespace NiumaQuest.Service
         /// <inheritdoc />
         public bool PushSignal(QuestSignal signal)
         {
-            if (string.IsNullOrWhiteSpace(signal.TargetId))
+            BeginMutation();
+            try
             {
-                return false;
-            }
+                if (string.IsNullOrWhiteSpace(signal.TargetId))
+                {
+                    return false;
+                }
 
-            var progressed = false;
-            foreach (var state in _runtimeStates.Values)
+                var progressed = false;
+                foreach (var state in _runtimeStates.Values)
+                {
+                    if (state == null || state.State != QuestState.Accepted || state.Objectives == null)
+                    {
+                        continue;
+                    }
+
+                    var stateProgressed = false;
+                    for (var i = 0; i < state.Objectives.Length; i++)
+                    {
+                        var objective = state.Objectives[i];
+                        if (objective == null || objective.IsCompleted || !objective.HasConfigCache)
+                        {
+                            continue;
+                        }
+
+                        if (objective.Type != signal.Type || !string.Equals(objective.TargetId, signal.TargetId, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        var increment = signal.Count < 1 ? 1 : signal.Count;
+                        if (objective.CurrentCount < 0)
+                        {
+                            objective.CurrentCount = 0;
+                        }
+
+                        if (objective.RequiredCount < 1)
+                        {
+                            objective.RequiredCount = 1;
+                        }
+
+                        var remaining = objective.RequiredCount - objective.CurrentCount;
+                        if (remaining <= 0)
+                        {
+                            objective.CurrentCount = objective.RequiredCount;
+                            objective.IsCompleted = true;
+                            continue;
+                        }
+
+                        if (increment >= remaining)
+                        {
+                            objective.CurrentCount = objective.RequiredCount;
+                        }
+                        else
+                        {
+                            objective.CurrentCount += increment;
+                        }
+
+                        if (objective.CurrentCount >= objective.RequiredCount)
+                        {
+                            objective.CurrentCount = objective.RequiredCount;
+                            objective.IsCompleted = true;
+                        }
+
+                        PublishObjectiveProgressed(state, objective);
+                        stateProgressed = true;
+                        progressed = true;
+                    }
+
+                    if (stateProgressed)
+                    {
+                        EvaluateCurrentStage(state);
+                    }
+                }
+
+                return progressed;
+            }
+            finally
             {
-                if (state == null || state.State != QuestState.Accepted || state.Objectives == null)
-                {
-                    continue;
-                }
-
-                var stateProgressed = false;
-                for (var i = 0; i < state.Objectives.Length; i++)
-                {
-                    var objective = state.Objectives[i];
-                    if (objective == null || objective.IsCompleted || !objective.HasConfigCache)
-                    {
-                        continue;
-                    }
-
-                    if (objective.Type != signal.Type || !string.Equals(objective.TargetId, signal.TargetId, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    var increment = signal.Count < 1 ? 1 : signal.Count;
-                    if (objective.CurrentCount < 0)
-                    {
-                        objective.CurrentCount = 0;
-                    }
-
-                    if (objective.RequiredCount < 1)
-                    {
-                        objective.RequiredCount = 1;
-                    }
-
-                    var remaining = objective.RequiredCount - objective.CurrentCount;
-                    if (remaining <= 0)
-                    {
-                        objective.CurrentCount = objective.RequiredCount;
-                        objective.IsCompleted = true;
-                        continue;
-                    }
-
-                    if (increment >= remaining)
-                    {
-                        objective.CurrentCount = objective.RequiredCount;
-                    }
-                    else
-                    {
-                        objective.CurrentCount += increment;
-                    }
-
-                    if (objective.CurrentCount >= objective.RequiredCount)
-                    {
-                        objective.CurrentCount = objective.RequiredCount;
-                        objective.IsCompleted = true;
-                    }
-
-                    PublishObjectiveProgressed(state, objective);
-                    stateProgressed = true;
-                    progressed = true;
-                }
-
-                if (stateProgressed)
-                {
-                    EvaluateCurrentStage(state);
-                }
+                EndMutation();
             }
-
-            return progressed;
         }
 
         /// <inheritdoc />
@@ -361,51 +440,60 @@ namespace NiumaQuest.Service
         /// <inheritdoc />
         public void ImportSnapshots(IEnumerable<QuestProgressSnapshot> snapshots)
         {
-            _runtimeStates.Clear();
-
-            if (snapshots == null)
+            BeginMutation();
+            try
             {
-                return;
-            }
+                _runtimeStates.Clear();
+                MarkRevisionDirty();
 
-            foreach (var snapshot in snapshots)
-            {
-                if (snapshot == null || !TryGetAsset(snapshot.QuestId, out var asset))
+                if (snapshots == null)
                 {
-                    continue;
+                    return;
                 }
 
-                var stage = FindStage(asset, snapshot.CurrentStageId);
-                if (stage == null)
+                foreach (var snapshot in snapshots)
                 {
-                    var failedState = new QuestRuntimeState
+                    if (snapshot == null || !TryGetAsset(snapshot.QuestId, out var asset))
+                    {
+                        continue;
+                    }
+
+                    var stage = FindStage(asset, snapshot.CurrentStageId);
+                    if (stage == null)
+                    {
+                        var failedState = new QuestRuntimeState
+                        {
+                            QuestId = snapshot.QuestId,
+                            State = QuestState.MigrationFailed,
+                            CurrentStageId = snapshot.CurrentStageId,
+                            IsTracked = snapshot.IsTracked,
+                            Objectives = Array.Empty<QuestObjectiveRuntimeState>()
+                        };
+
+                        _runtimeStates[failedState.QuestId] = failedState;
+                        PublishChanged(failedState.QuestId, QuestChangeType.MigrationFailed);
+                        continue;
+                    }
+
+                    var state = new QuestRuntimeState
                     {
                         QuestId = snapshot.QuestId,
-                        State = QuestState.MigrationFailed,
-                        CurrentStageId = snapshot.CurrentStageId,
+                        State = snapshot.State,
+                        CurrentStageId = stage.StageId,
                         IsTracked = snapshot.IsTracked,
-                        Objectives = Array.Empty<QuestObjectiveRuntimeState>()
+                        Objectives = BuildObjectiveStates(stage, null, snapshot.Objectives)
                     };
 
-                    _runtimeStates[failedState.QuestId] = failedState;
-                    PublishChanged(failedState.QuestId, QuestChangeType.MigrationFailed);
-                    continue;
+                    _runtimeStates[state.QuestId] = state;
+                    if (state.State == QuestState.Accepted)
+                    {
+                        EvaluateCurrentStage(state);
+                    }
                 }
-
-                var state = new QuestRuntimeState
-                {
-                    QuestId = snapshot.QuestId,
-                    State = snapshot.State,
-                    CurrentStageId = stage.StageId,
-                    IsTracked = snapshot.IsTracked,
-                    Objectives = BuildObjectiveStates(stage, null, snapshot.Objectives)
-                };
-
-                _runtimeStates[state.QuestId] = state;
-                if (state.State == QuestState.Accepted)
-                {
-                    EvaluateCurrentStage(state);
-                }
+            }
+            finally
+            {
+                EndMutation();
             }
         }
 
@@ -814,7 +902,57 @@ namespace NiumaQuest.Service
 
         private void PublishChanged(string questId, QuestChangeType changeType)
         {
+            MarkRevisionDirty();
             OnQuestChanged?.Invoke(new QuestChangedEvent(questId, changeType));
+        }
+
+        private void BeginMutation()
+        {
+            _mutationDepth++;
+        }
+
+        private void EndMutation()
+        {
+            if (_mutationDepth <= 0)
+            {
+                _mutationDepth = 0;
+                _revisionDirtyInCurrentMutation = false;
+                return;
+            }
+
+            _mutationDepth--;
+            if (_mutationDepth == 0)
+            {
+                _revisionDirtyInCurrentMutation = false;
+            }
+        }
+
+        private void MarkRevisionDirty()
+        {
+            if (_mutationDepth > 0)
+            {
+                if (_revisionDirtyInCurrentMutation)
+                {
+                    return;
+                }
+
+                BumpRevision();
+                _revisionDirtyInCurrentMutation = true;
+                return;
+            }
+
+            BumpRevision();
+        }
+
+        private void BumpRevision()
+        {
+            if (Revision == int.MaxValue)
+            {
+                Revision = 1;
+                return;
+            }
+
+            Revision++;
         }
     }
 }

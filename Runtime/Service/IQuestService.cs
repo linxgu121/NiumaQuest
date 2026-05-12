@@ -56,6 +56,12 @@ namespace NiumaQuest.Service
         event Action<QuestTrackingChangedEvent> OnTrackingChanged;
 
         /// <summary>
+        /// 任务数据版本号。
+        /// 每当任务运行时状态或任务配置引用发生变化时递增，供数据驱动桥接层按顺序拉取快照。
+        /// </summary>
+        int Revision { get; }
+
+        /// <summary>
         /// 设置任务静态配置数据库。
         /// 通常由 NiumaQuestController 在初始化时传入。
         /// 如果已有运行时状态，该方法会刷新运行时缓存，并通过事件通知外部。

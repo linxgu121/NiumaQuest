@@ -1,3 +1,4 @@
+using System;
 using NiumaCore.Event;
 using NiumaCore.Module;
 using NiumaQuest.Data;
@@ -67,6 +68,85 @@ namespace NiumaQuest.Controller
         /// 当前模块是否正在运行。
         /// </summary>
         public bool IsRunning { get; private set; }
+
+        /// <summary>
+        /// 任务数据版本号。
+        /// UI、存档或调试桥接层可以通过该值判断是否需要重新拉取快照。
+        /// </summary>
+        public int QuestRevision => _questService.Revision;
+
+        /// <summary>
+        /// 任务数据发生变化时触发。
+        /// 桥接层通过控制器订阅事件，避免直接依赖 QuestService 实现。
+        /// </summary>
+        public event Action<QuestChangedEvent> OnQuestChanged
+        {
+            add => _questService.OnQuestChanged += value;
+            remove => _questService.OnQuestChanged -= value;
+        }
+
+        /// <summary>
+        /// 任务接取时触发。
+        /// </summary>
+        public event Action<QuestAcceptedEvent> OnQuestAccepted
+        {
+            add => _questService.OnQuestAccepted += value;
+            remove => _questService.OnQuestAccepted -= value;
+        }
+
+        /// <summary>
+        /// 任务目标进度变化时触发。
+        /// </summary>
+        public event Action<QuestObjectiveProgressedEvent> OnObjectiveProgressed
+        {
+            add => _questService.OnObjectiveProgressed += value;
+            remove => _questService.OnObjectiveProgressed -= value;
+        }
+
+        /// <summary>
+        /// 任务阶段变化时触发。
+        /// </summary>
+        public event Action<QuestStageChangedEvent> OnStageChanged
+        {
+            add => _questService.OnStageChanged += value;
+            remove => _questService.OnStageChanged -= value;
+        }
+
+        /// <summary>
+        /// 任务按顺序推进阶段时触发。
+        /// </summary>
+        public event Action<QuestStageAdvancedEvent> OnStageAdvanced
+        {
+            add => _questService.OnStageAdvanced += value;
+            remove => _questService.OnStageAdvanced -= value;
+        }
+
+        /// <summary>
+        /// 任务完成时触发。
+        /// </summary>
+        public event Action<QuestCompletedEvent> OnQuestCompleted
+        {
+            add => _questService.OnQuestCompleted += value;
+            remove => _questService.OnQuestCompleted -= value;
+        }
+
+        /// <summary>
+        /// 任务失败时触发。
+        /// </summary>
+        public event Action<QuestFailedEvent> OnQuestFailed
+        {
+            add => _questService.OnQuestFailed += value;
+            remove => _questService.OnQuestFailed -= value;
+        }
+
+        /// <summary>
+        /// 任务追踪状态变化时触发。
+        /// </summary>
+        public event Action<QuestTrackingChangedEvent> OnTrackingChanged
+        {
+            add => _questService.OnTrackingChanged += value;
+            remove => _questService.OnTrackingChanged -= value;
+        }
 
         private readonly QuestService _questService = new QuestService();
         private GameContext _context;
@@ -241,6 +321,32 @@ namespace NiumaQuest.Controller
         public bool IsQuestCompleted(string questId)
         {
             return IsInitialized && _questService.IsQuestCompleted(questId);
+        }
+
+        /// <summary>
+        /// 尝试获取任务静态配置。
+        /// 用于桥接层把运行时快照翻译成 UI 表现数据，不允许外部修改返回的配置对象。
+        /// </summary>
+        public bool TryGetQuestAsset(string questId, out QuestAsset asset)
+        {
+            if (string.IsNullOrWhiteSpace(questId) || questAssets == null)
+            {
+                asset = null;
+                return false;
+            }
+
+            for (var i = 0; i < questAssets.Length; i++)
+            {
+                var candidate = questAssets[i];
+                if (candidate != null && candidate.QuestId == questId)
+                {
+                    asset = candidate;
+                    return true;
+                }
+            }
+
+            asset = null;
+            return false;
         }
 
         /// <summary>

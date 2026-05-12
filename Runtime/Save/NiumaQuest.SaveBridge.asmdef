@@ -1,0 +1,15 @@
+{
+  "name": "NiumaQuest.SaveBridge",
+  "references": [
+    "NiumaQuest.Runtime",
+    "NiumaSave.Runtime"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": []
+}

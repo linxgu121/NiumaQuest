@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using NiumaCore.Event;
 using NiumaCore.Module;
 using NiumaQuest.Data;
@@ -378,6 +379,21 @@ namespace NiumaQuest.Controller
         public QuestProgressSnapshot[] ExportSnapshots()
         {
             return _questService.ExportSnapshots();
+        }
+
+        /// <summary>
+        /// 复制任务快照到调用方缓存列表。
+        /// UI 桥接层优先使用该轻量查询，不要为了刷新界面调用 ExportSnapshots。
+        /// </summary>
+        public void CopyQuestSnapshots(List<QuestProgressSnapshot> output)
+        {
+            if (!IsInitialized || _questService == null)
+            {
+                output?.Clear();
+                return;
+            }
+
+            _questService.CopyQuestSnapshots(output);
         }
 
         /// <summary>

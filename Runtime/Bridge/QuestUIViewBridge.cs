@@ -39,11 +39,13 @@ namespace NiumaQuest.Bridge
         [SerializeField] private bool logWarnings = true;
 
         private readonly List<QuestObjectiveViewData> _objectiveBuffer = new List<QuestObjectiveViewData>();
+        private readonly List<QuestProgressSnapshot> _snapshotBuffer = new List<QuestProgressSnapshot>();
         private IQuestUIReceiver _receiver;
         private int _observedRevision = -1;
         private QuestTrackerViewData _lastTrackerData;
         private bool _hadTrackedQuest;
         private bool _isApplyingUpdate;
+        private bool _refreshRequested;
 
         private void Reset()
         {
@@ -54,6 +56,7 @@ namespace NiumaQuest.Bridge
         {
             ResolveReferences(true);
             _observedRevision = -1;
+            _refreshRequested = false;
 
             if (refreshOnEnable)
             {
@@ -61,8 +64,22 @@ namespace NiumaQuest.Bridge
             }
         }
 
+        private void OnDisable()
+        {
+            // 禁用面板或切场景时清理 UI 回调锁，避免重新启用后因为旧状态残留而拒绝刷新。
+            _isApplyingUpdate = false;
+            _refreshRequested = false;
+        }
+
         private void LateUpdate()
         {
+            if (_refreshRequested)
+            {
+                _refreshRequested = false;
+                RefreshTrackedQuest();
+                return;
+            }
+
             if (!refreshInLateUpdate || !EnsureController())
             {
                 return;
@@ -107,10 +124,11 @@ namespace NiumaQuest.Bridge
 
         private QuestProgressSnapshot FindTrackedSnapshot()
         {
-            var snapshots = questController.ExportSnapshots();
-            for (var i = 0; i < snapshots.Length; i++)
+            // UI 刷新只走轻量只读查询，不调用 ExportSnapshots，避免把存档导出路径当作界面数据源。
+            questController.CopyQuestSnapshots(_snapshotBuffer);
+            for (var i = 0; i < _snapshotBuffer.Count; i++)
             {
-                var snapshot = snapshots[i];
+                var snapshot = _snapshotBuffer[i];
                 if (snapshot != null && snapshot.IsTracked)
                 {
                     return snapshot;
@@ -169,10 +187,11 @@ namespace NiumaQuest.Bridge
 
             if (questController != null && questController.QuestRevision != revisionBeforeApply)
             {
-                _observedRevision = questController.QuestRevision;
+                _observedRevision = -1;
+                _refreshRequested = true;
                 if (logWarnings)
                 {
-                    Debug.LogWarning("[NiumaQuestUIBridge] IQuestUIReceiver.ApplyQuestUpdate 内修改了任务数据，桥接层已吞掉这次回流刷新以避免循环。请把任务推进放到输入/交互/剧情管线中处理。", this);
+                    Debug.LogWarning("[NiumaQuestUIBridge] IQuestUIReceiver.ApplyQuestUpdate 内修改了任务数据，桥接层已请求下一帧重新刷新。请把任务推进放到输入/交互/剧情管线中处理。", this);
                 }
             }
         }

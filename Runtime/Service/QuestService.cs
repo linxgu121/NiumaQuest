@@ -420,6 +420,19 @@ namespace NiumaQuest.Service
             }
 
             var snapshots = new List<QuestProgressSnapshot>(_runtimeStates.Count);
+            CopyQuestSnapshots(snapshots);
+            return snapshots.ToArray();
+        }
+
+        /// <inheritdoc />
+        public void CopyQuestSnapshots(List<QuestProgressSnapshot> output)
+        {
+            if (output == null)
+            {
+                return;
+            }
+
+            output.Clear();
             foreach (var state in _runtimeStates.Values)
             {
                 if (state == null || state.State == QuestState.MigrationFailed)
@@ -430,11 +443,9 @@ namespace NiumaQuest.Service
                 var snapshot = state.ToSnapshot();
                 if (snapshot != null)
                 {
-                    snapshots.Add(snapshot);
+                    output.Add(snapshot);
                 }
             }
-
-            return snapshots.ToArray();
         }
 
         /// <inheritdoc />

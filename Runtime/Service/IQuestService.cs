@@ -134,6 +134,12 @@ namespace NiumaQuest.Service
         QuestProgressSnapshot[] ExportSnapshots();
 
         /// <summary>
+        /// 复制任务快照到调用方提供的缓存列表。
+        /// UI、调试面板等只读展示场景优先使用该接口，避免为了刷新界面创建完整快照数组。
+        /// </summary>
+        void CopyQuestSnapshots(List<QuestProgressSnapshot> output);
+
+        /// <summary>
         /// 从存档快照恢复任务运行时状态。
         /// </summary>
         void ImportSnapshots(IEnumerable<QuestProgressSnapshot> snapshots);

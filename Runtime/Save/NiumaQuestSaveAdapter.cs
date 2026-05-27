@@ -50,7 +50,7 @@ namespace NiumaQuest.Save
         /// 任务数据版本号。
         /// NiumaSave 通过该值判断任务模块是否发生变化。
         /// </summary>
-        public int Revision => questController != null ? questController.QuestRevision : 0;
+        public long Revision => questController != null ? questController.QuestRevision : 0L;
 
         private void Awake()
         {

@@ -280,7 +280,9 @@ namespace NiumaQuest.Service
                     return false;
                 }
 
-                if (state.State == QuestState.Completed || state.State == QuestState.Rewarded)
+                if (state.State == QuestState.Completed
+                    || state.State == QuestState.RewardPending
+                    || state.State == QuestState.Rewarded)
                 {
                     return false;
                 }

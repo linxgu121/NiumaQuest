@@ -15,7 +15,9 @@ NiumaQuest 是任务模块，负责任务配置、接取、阶段推进、目标
 3. Gal / Interact / Inventory / Story 桥接推送 QuestSignal。
 4. QuestService 匹配当前阶段目标并更新计数。
 5. 目标完成后按配置手动或自动推进阶段。
-6. 任务完成后导出 ProgressSnapshot，SaveAdapter 保存进度。
+6. 任务完成后进入 Completed，Reward 模块通过 NiumaRewardQuestBridge 接管实际发奖。
+7. Reward 发奖成功后回写 Rewarded；发奖失败时任务保持 RewardPending，等待重试。
+8. SaveAdapter 保存任务进度与奖励状态，不保存具体物品或经验。
 
 ## 模块用法
 - QuestId、StageId、ObjectiveId 必须稳定，避免策划调顺序造成存档错位。
@@ -35,6 +37,14 @@ NiumaQuest 是任务模块，负责任务配置、接取、阶段推进、目标
 - `UIRoot/QuestTracker`：放任务追踪面板，接收 QuestUIViewBridge 的 ViewData。
 
 ## 协作边界
-Quest 不发放具体物品、不直接播放对话。奖励发放、剧情演出、对话分支由外部模块根据任务状态或信号处理。
+Quest 不发放具体物品、不直接播放对话。`QuestAsset.Rewards` 只作为奖励声明，实际发奖由 `NiumaRewardQuestBridge` 转交 `NiumaReward` 完成。
+
+奖励状态约定：
+
+- `Completed`：任务目标已完成，奖励还未进入发放流程。
+- `RewardPending`：奖励正在发放或发放失败等待重试。
+- `Rewarded`：奖励已成功发放，任务完全闭环。
+
+因此任务模块只负责 `TrySetRewardPending` 和 `TryMarkRewarded` 这类状态收口，不直接调用背包、成长或自定义奖励处理器。
 
 

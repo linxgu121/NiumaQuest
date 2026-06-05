@@ -159,6 +159,67 @@ namespace NiumaQuest.Service
         }
 
         /// <inheritdoc />
+        public bool TrySetRewardPending(string questId)
+        {
+            BeginMutation();
+            try
+            {
+                if (!TryGetInternalQuestState(questId, out var state))
+                {
+                    return false;
+                }
+
+                if (state.State == QuestState.RewardPending)
+                {
+                    return true;
+                }
+
+                if (state.State != QuestState.Completed)
+                {
+                    return false;
+                }
+
+                state.State = QuestState.RewardPending;
+                PublishChanged(state.QuestId, QuestChangeType.RewardPending);
+                return true;
+            }
+            finally
+            {
+                EndMutation();
+            }
+        }
+
+        /// <inheritdoc />
+        public bool TryMarkRewarded(string questId)
+        {
+            BeginMutation();
+            try
+            {
+                if (!TryGetInternalQuestState(questId, out var state))
+                {
+                    return false;
+                }
+
+                if (state.State == QuestState.Rewarded)
+                {
+                    return true;
+                }
+
+                if (state.State != QuestState.Completed && state.State != QuestState.RewardPending)
+                {
+                    return false;
+                }
+
+                state.State = QuestState.Rewarded;
+                PublishChanged(state.QuestId, QuestChangeType.Rewarded);
+                return true;
+            }
+            finally
+            {
+                EndMutation();
+            }
+        }
+
         public bool TryAdvanceStage(string questId)
         {
             BeginMutation();

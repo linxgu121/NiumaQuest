@@ -80,6 +80,18 @@ namespace NiumaQuest.Service
         bool TryCompleteQuest(string questId);
 
         /// <summary>
+        /// 尝试将已完成任务转为待发奖状态。
+        /// 仅允许 Completed 或已 RewardPending 的任务进入该状态；RewardPending 重复调用返回 true。
+        /// </summary>
+        bool TrySetRewardPending(string questId);
+
+        /// <summary>
+        /// 尝试将已完成或待发奖任务标记为已领奖。
+        /// Completed / RewardPending 可进入 Rewarded；Rewarded 重复调用返回 true，其他状态不允许直接标记。
+        /// </summary>
+        bool TryMarkRewarded(string questId);
+
+        /// <summary>
         /// 尝试推进到下一个阶段。
         /// Manual 阶段必须通过该方法或 TrySetStage 显式推进。
         /// </summary>

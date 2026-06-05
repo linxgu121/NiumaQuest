@@ -271,6 +271,22 @@ namespace NiumaQuest.Controller
         /// <summary>
         /// 尝试推进任务阶段。
         /// </summary>
+        /// <summary>
+        /// 尝试将已完成任务转为待发奖状态。
+        /// </summary>
+        public bool TrySetRewardPending(string questId)
+        {
+            return IsInitialized && _questService.TrySetRewardPending(questId);
+        }
+
+        /// <summary>
+        /// 尝试将任务标记为已领奖。
+        /// </summary>
+        public bool TryMarkRewarded(string questId)
+        {
+            return IsInitialized && _questService.TryMarkRewarded(questId);
+        }
+
         public bool TryAdvanceStage(string questId)
         {
             return IsInitialized && _questService.TryAdvanceStage(questId);

@@ -27,6 +27,16 @@ namespace NiumaQuest.Enum
         Completed,
 
         /// <summary>
+        /// 任务已进入待发奖状态。
+        /// </summary>
+        RewardPending,
+
+        /// <summary>
+        /// 任务奖励已成功发放或已命中幂等记录。
+        /// </summary>
+        Rewarded,
+
+        /// <summary>
         /// 任务失败。
         /// </summary>
         Failed,

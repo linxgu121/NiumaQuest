@@ -17,7 +17,7 @@ namespace NiumaQuest.Bridge
         [Tooltip("任务模块根控制器。请拖入场景中的 NiumaQuestController。为空时可按配置自动查找。")]
         [SerializeField] private NiumaQuestController questController;
 
-        [Tooltip("实现 IQuestUIReceiver 的 UI 组件。任务桥接层会把整理后的 UI 表现数据转交给它显示。")]
+        [Tooltip("任务追踪 UI 脚本。拖团队制作的 QuestTracker/QuestPanel 面板脚本；该脚本负责显示任务标题、阶段和目标进度。当前模块未内置正式面板，未制作 UI 时可留空。")]
         [SerializeField] private MonoBehaviour questUIReceiverProvider;
 
         [Header("自动查找")]
@@ -338,7 +338,7 @@ namespace NiumaQuest.Bridge
             var receiver = questUIReceiverProvider as IQuestUIReceiver;
             if (receiver == null && logWarnings && logMissing && questUIReceiverProvider != null)
             {
-                Debug.LogWarning("[NiumaQuestUIBridge] Quest UI Receiver Provider 没有实现 IQuestUIReceiver。", this);
+                Debug.LogWarning("[NiumaQuestUIBridge] Quest UI Receiver 绑定的不是任务追踪面板脚本，请拖团队制作的 QuestTracker/QuestPanel 脚本。", this);
             }
 
             return receiver;

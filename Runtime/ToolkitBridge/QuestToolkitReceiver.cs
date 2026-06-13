@@ -5,36 +5,30 @@ using UnityEngine;
 namespace NiumaQuest.ToolkitBridge
 {
     /// <summary>
-    /// 任务 UI Toolkit 接收器。
-    /// 挂在 UIRoot/UIBridges 下，并拖给 QuestUIViewBridge 的 Quest UI Receiver Provider。
+    /// 任务 UI Toolkit 接收器。挂在 UIRoot/UIBridges 下，并拖给 QuestUIViewBridge 的 Quest UI Receiver Provider。
     /// </summary>
     public sealed class QuestToolkitReceiver : MonoBehaviour, IQuestUIReceiver
     {
         [Header("Toolkit")]
         [Tooltip("UI Toolkit 根控制器。拖核心场景 UIRoot/UIManager 上的 UIToolkitUIManager。")]
         [SerializeField] private UIToolkitUIManager uiManager;
-
         [Tooltip("任务追踪 ViewId。需要在 UIToolkitViewRegistrySO 中注册同名 View。")]
         [SerializeField] private string questViewId = "QuestTracker";
-
         [Tooltip("收到任务追踪刷新时，如果窗口尚未打开，是否自动打开。")]
         [SerializeField] private bool autoOpenView = true;
-
-        [Tooltip("收到 Cleared 更新时是否关闭任务追踪窗口。")]
+        [Tooltip("收到 Cleared 更新时是否关闭任务追踪窗口。开启后会关闭并停止刷新，避免关闭后又被自动打开。")]
         [SerializeField] private bool closeOnCleared = true;
-
         [Header("调试")]
         [Tooltip("缺少 UIManager 或 ViewId 未注册时是否输出警告。")]
         [SerializeField] private bool logWarnings = true;
 
         public void ApplyQuestUpdate(QuestUIUpdate update)
         {
-            if (update.UpdateType == QuestUIUpdateType.Cleared)
-            {
-                if (closeOnCleared && uiManager != null)
-                    uiManager.CloseView(questViewId);
 
-                RefreshOrOpen(update);
+            if (update.UpdateType == QuestUIUpdateType.Cleared && closeOnCleared)
+            {
+                if (uiManager != null)
+                    uiManager.CloseView(questViewId);
                 return;
             }
 
